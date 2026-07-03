@@ -27,35 +27,89 @@ export class JobsService {
   }
 
   async findAll(query: QueryJobsDto) {
-    const pageNum = Number(query.page) || 1;
-    const limitNum = Number(query.limit) || 20;
-    const { q, category, location, type } = query;
+  const pageNum = Number(query.page) || 1;
+  const limitNum = Number(query.limit) || 20;
+  const { q, category, location, type } = query;
 
-    // Build a plain where object without Prisma namespace types
-    // (avoids Prisma.JobWhereInput which requires generated client)
-    const where: Record<string, unknown> = { status: 'PUBLISHED' };
-    if (type)     where['type']     = type;
-    if (category) where['category'] = { slug: category };
-    if (location) where['location'] = { contains: location, mode: 'insensitive' };
-    if (q)        where['OR']       = [
-      { title:       { contains: q, mode: 'insensitive' } },
-      { description: { contains: q, mode: 'insensitive' } },
-    ];
+  const where: Record<string, any> = {};
 
-    const [items, total] = await Promise.all([
-      this.prisma.job.findMany({
-        where: where as never,
-        include: { company: true, category: true, _count: { select: { applications: true } } },
-        orderBy: [{ featured: 'desc' }, { createdAt: 'desc' }],
-        skip: (pageNum - 1) * limitNum,
-        take: limitNum,
-      }),
-      this.prisma.job.count({ where: where as never }),
-    ]);
-
-    return { items, total, page: pageNum, limit: limitNum, totalPages: Math.ceil(total / limitNum) };
+  // job type
+  if (type) {
+    where.type = type;
   }
 
+  // category slug → categoryId FIX
+  if (category) {
+  console.log("CATEGORY INPUT:", category);
+
+  const cat = await this.prisma.jobCategory.findUnique({
+    where: { slug: category },
+  });
+
+  console.log("FOUND CATEGORY:", cat);
+
+  if (cat) {
+    where.categoryId = cat.id;
+  }
+}
+
+  // location filter
+  if (location) {
+    where.location = {
+      contains: location,
+      mode: 'insensitive',
+    };
+  }
+
+  // search (title + description)
+  if (q) {
+    where.OR = [
+      {
+        title: {
+          contains: q,
+          mode: 'insensitive',
+        },
+      },
+      {
+        description: {
+          contains: q,
+          mode: 'insensitive',
+        },
+      },
+    ];
+  }
+
+  const [items, total] = await Promise.all([
+    this.prisma.job.findMany({
+      where: where as any,
+      include: {
+        company: true,
+        category: true,
+        _count: {
+          select: { applications: true },
+        },
+      },
+      orderBy: [
+        { featured: 'desc' },
+        { createdAt: 'desc' },
+      ],
+      skip: (pageNum - 1) * limitNum,
+      take: limitNum,
+    }),
+
+    this.prisma.job.count({
+      where: where as any,
+    }),
+  ]);
+
+  return {
+    items,
+    total,
+    page: pageNum,
+    limit: limitNum,
+    totalPages: Math.ceil(total / limitNum),
+  };
+}
   async findOne(id: string) {
     const job = await this.prisma.job.findUnique({
       where: { id },
